@@ -6,7 +6,8 @@ import {
   doc, 
   setDoc, 
   updateDoc, 
-  addDoc 
+  addDoc,
+  writeBatch
 } from 'firebase/firestore';
 
 const AppContext = createContext();
@@ -144,27 +145,44 @@ export const AppProvider = ({ children }) => {
     try {
       // 1. Subscribe to Lectures Collection
       const lecturesRef = collection(db, 'lectures');
-      unsubscribeLectures = onSnapshot(lecturesRef, (snapshot) => {
+      unsubscribeLectures = onSnapshot(lecturesRef, async (snapshot) => {
         if (snapshot.empty) {
-          // Seed initial data if collection is empty
-          initialLectures.forEach(async (lec) => {
-            await setDoc(doc(db, 'lectures', lec.id), lec);
-          });
+          // Atomic batch seed initial data to avoid partial snapshot loop
+          try {
+            const batch = writeBatch(db);
+            initialLectures.forEach((lec) => {
+              batch.set(doc(db, 'lectures', lec.id), lec);
+            });
+            await batch.commit();
+          } catch (e) {
+            console.warn('Batch lecture seed warning:', e);
+          }
         } else {
-          const docsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          // Maintain original period sorting order
-          docsData.sort((a, b) => a.id.localeCompare(b.id));
-          setLectures(docsData);
+          // Merge Firestore docs with initialLectures to guarantee all 5 periods are present
+          const docsMap = new Map();
+          initialLectures.forEach(lec => docsMap.set(lec.id, lec));
+          snapshot.docs.forEach(d => {
+            docsMap.set(d.id, { id: d.id, ...d.data() });
+          });
+          const mergedLectures = Array.from(docsMap.values());
+          mergedLectures.sort((a, b) => a.id.localeCompare(b.id));
+          setLectures(mergedLectures);
         }
       }, (err) => console.warn('Firestore lectures snapshot fallback:', err));
 
       // 2. Subscribe to Clarity Reports Collection
       const reportsRef = collection(db, 'clarityReports');
-      unsubscribeReports = onSnapshot(reportsRef, (snapshot) => {
+      unsubscribeReports = onSnapshot(reportsRef, async (snapshot) => {
         if (snapshot.empty) {
-          initialClarityReports.forEach(async (rep) => {
-            await setDoc(doc(db, 'clarityReports', rep.id), rep);
-          });
+          try {
+            const batch = writeBatch(db);
+            initialClarityReports.forEach((rep) => {
+              batch.set(doc(db, 'clarityReports', rep.id), rep);
+            });
+            await batch.commit();
+          } catch (e) {
+            console.warn('Batch report seed warning:', e);
+          }
         } else {
           const docsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           setClarityReports(docsData);
