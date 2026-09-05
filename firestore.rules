@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // 1. LECTURES COLLECTION
+    // Public read for live timetable displays, authenticated write for status updates
+    match /lectures/{lectureId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // 2. CLARITY REPORTS COLLECTION
+    // Public read/create for anonymous student feedback polls, authenticated updates
+    match /clarityReports/{reportId} {
+      allow read, create: if true;
+      allow update, delete: if isAuthenticated();
+    }
+
+    // 3. DISPUTES COLLECTION
+    // Authenticated access for raising and resolving attendance disputes
+    match /disputes/{disputeId} {
+      allow read, create, update, delete: if isAuthenticated();
+    }
+    
+    // Default fallback rule
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
